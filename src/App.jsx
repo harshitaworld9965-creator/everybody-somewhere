@@ -22,12 +22,23 @@ const activities = [
   },
 ];
 
-// Fictional counts: every snapshot contains exactly 100 people.
+// Fictional counts: every snapshot contains exactly 1,000 people.
 const snapshots = {
-  "03:00": [90, 5, 5],
-  "08:00": [15, 70, 15],
-  "19:00": [10, 10, 80],
+  "03:00": [900, 50, 50],
+  "08:00": [150, 700, 150],
+  "19:00": [100, 100, 800],
 };
+
+// Arrange people in a sunflower-like formation.
+function getPosition(slot, centerX) {
+  const angle = slot * 2.399963;
+  const radius = 3.1 * Math.sqrt(slot + 0.5);
+
+  return {
+    x: centerX + Math.cos(angle) * radius,
+    y: 220 + Math.sin(angle) * radius,
+  };
+}
 
 export default function App() {
   const [time, setTime] = useState("03:00");
@@ -39,16 +50,20 @@ export default function App() {
 
   // Calculate each person's destination for the selected time.
   const people = activities.flatMap((activity, groupIndex) =>
-    Array.from({ length: counts[groupIndex] }, (_, slot) => ({
-      id: nextId++,
-      x: activity.x + (slot % 10) * 10,
-      y: 150 + Math.floor(slot / 10) * 10,
-      color: activity.color,
-    })),
+    Array.from({ length: counts[groupIndex] }, (_, slot) => {
+      const position = getPosition(slot, activity.x + 45);
+
+      return {
+        id: nextId++,
+        x: position.x,
+        y: position.y,
+        color: activity.color,
+      };
+    }),
   );
 
-  // Keep React's rendered coordinates fixed at the initial snapshot.
-  // GSAP controls the circles' coordinates during animation.
+  // React supplies fixed starting positions.
+  // GSAP controls the circles' animated coordinates.
   const [initialPeople] = useState(people);
 
   useGSAP(
@@ -64,7 +79,7 @@ export default function App() {
           fill: (index) => people[index].color,
         },
         duration: reducedMotion ? 0 : 1.6,
-        stagger: reducedMotion ? 0 : 0.003,
+        stagger: reducedMotion ? 0 : 0.0006,
         ease: "power3.inOut",
         overwrite: true,
       });
@@ -79,10 +94,10 @@ export default function App() {
     <main ref={sceneRef}>
       <h1>Everybody, Somewhere.</h1>
 
-      <p>100 fictional people. One ordinary day.</p>
+      <p>1,000 fictional people. One ordinary day.</p>
 
       <svg
-        viewBox="0 0 720 310"
+        viewBox="0 0 720 360"
         role="img"
         aria-label={`Activity distribution at ${time}: ${counts[0]} sleeping, ${counts[1]} working, ${counts[2]} unwinding.`}
         style={{
@@ -92,7 +107,7 @@ export default function App() {
       >
         <rect
           width="720"
-          height="310"
+          height="360"
           fill="#080d14"
         />
 
@@ -126,7 +141,7 @@ export default function App() {
             className="person"
             cx={person.x}
             cy={person.y}
-            r="2.5"
+            r="1.7"
             fill={person.color}
           />
         ))}
