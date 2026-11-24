@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 
-gsap.registerPlugin(useGSAP);
+gsap.registerPlugin(useGSAP, MotionPathPlugin);
 
 const activities = [
   {
@@ -22,14 +23,13 @@ const activities = [
   },
 ];
 
-// Fictional counts: every snapshot contains exactly 1,000 people.
+// Fictional counts: every snapshot contains 1,000 people.
 const snapshots = {
   "03:00": [900, 50, 50],
   "08:00": [150, 700, 150],
   "19:00": [100, 100, 800],
 };
 
-// Arrange people in a sunflower-like formation.
 function getPosition(slot, centerX) {
   const angle = slot * 2.399963;
   const radius = 3.1 * Math.sqrt(slot + 0.5);
@@ -40,6 +40,40 @@ function getPosition(slot, centerX) {
   };
 }
 
+// A cubic Bézier curve has a start, two control points,
+// and an end. The control points bend the journey.
+function buildCurve(start, end, id) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+
+  const distance = Math.hypot(dx, dy);
+
+  if (distance < 0.1) {
+    return [start, start, end, end];
+  }
+
+  // A unit vector perpendicular to the direction of travel.
+  const normalX = -dy / distance;
+  const normalY = dx / distance;
+
+  // Alternate the bending direction for neighbouring people.
+  const direction = id % 2 === 0 ? 1 : -1;
+  const bend = Math.min(75, distance * 0.3) * direction;
+
+  return [
+    start,
+    {
+      x: start.x + dx * 0.33 + normalX * bend,
+      y: start.y + dy * 0.33 + normalY * bend,
+    },
+    {
+      x: start.x + dx * 0.67 + normalX * bend,
+      y: start.y + dy * 0.67 + normalY * bend,
+    },
+    end,
+  ];
+}
+
 export default function App() {
   const [time, setTime] = useState("03:00");
   const sceneRef = useRef(null);
@@ -48,7 +82,6 @@ export default function App() {
 
   let nextId = 0;
 
-  // Calculate each person's destination for the selected time.
   const people = activities.flatMap((activity, groupIndex) =>
     Array.from({ length: counts[groupIndex] }, (_, slot) => {
       const position = getPosition(slot, activity.x + 45);
@@ -62,8 +95,6 @@ export default function App() {
     }),
   );
 
-  // React supplies fixed starting positions.
-  // GSAP controls the circles' animated coordinates.
   const [initialPeople] = useState(people);
 
   useGSAP(
@@ -72,16 +103,59 @@ export default function App() {
         "(prefers-reduced-motion: reduce)",
       ).matches;
 
-      gsap.to(".person", {
-        attr: {
-          cx: (index) => people[index].x,
-          cy: (index) => people[index].y,
-          fill: (index) => people[index].color,
-        },
-        duration: reducedMotion ? 0 : 1.6,
-        stagger: reducedMotion ? 0 : 0.0006,
-        ease: "power3.inOut",
-        overwrite: true,
+      const dots = sceneRef.current.querySelectorAll(".person");
+
+      dots.forEach((dot, index) => {
+        const person = people[index];
+        const initial = initialPeople[index];
+
+        // SVG transforms are offsets from the initial coordinates.
+        const endX = person.x - initial.x;
+        const endY = person.y - initial.y;
+
+        // Read the current position so interrupted journeys continue
+        // from wherever the person actually is.
+        const startX = parseFloat(gsap.getProperty(dot, "x")) || 0;
+        const startY = parseFloat(gsap.getProperty(dot, "y")) || 0;
+
+        const distance = Math.hypot(
+          endX - startX,
+          endY - startY,
+        );
+
+        if (reducedMotion || distance < 0.1) {
+          gsap.set(dot, {
+            x: endX,
+            y: endY,
+            attr: {
+              fill: person.color,
+            },
+            overwrite: true,
+          });
+
+          return;
+        }
+
+        const path = buildCurve(
+          { x: startX, y: startY },
+          { x: endX, y: endY },
+          person.id,
+        );
+
+        gsap.to(dot, {
+          motionPath: {
+            path,
+            type: "cubic",
+            autoRotate: false,
+          },
+          attr: {
+            fill: person.color,
+          },
+          duration: 1.8,
+          delay: person.id * 0.0006,
+          ease: "power2.inOut",
+          overwrite: true,
+        });
       });
     },
     {
@@ -97,7 +171,7 @@ export default function App() {
       <p>1,000 fictional people. One ordinary day.</p>
 
       <svg
-        viewBox="0 0 720 360"
+        viewBox="0 0 720 380"
         role="img"
         aria-label={`Activity distribution at ${time}: ${counts[0]} sleeping, ${counts[1]} working, ${counts[2]} unwinding.`}
         style={{
@@ -105,9 +179,29 @@ export default function App() {
           width: "min(720px, 90vw)",
         }}
       >
+        <defs>
+          <filter
+            id="person-glow"
+            x="-30%"
+            y="-30%"
+            width="160%"
+            height="160%"
+          >
+            <feGaussianBlur
+              stdDeviation="1.1"
+              result="glow"
+            />
+
+            <feMerge>
+              <feMergeNode in="glow" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
         <rect
           width="720"
-          height="360"
+          height="380"
           fill="#080d14"
         />
 
@@ -135,16 +229,18 @@ export default function App() {
           </g>
         ))}
 
-        {initialPeople.map((person) => (
-          <circle
-            key={person.id}
-            className="person"
-            cx={person.x}
-            cy={person.y}
-            r="1.7"
-            fill={person.color}
-          />
-        ))}
+        <g filter="url(#person-glow)">
+          {initialPeople.map((person) => (
+            <circle
+              key={person.id}
+              className="person"
+              cx={person.x}
+              cy={person.y}
+              r="1.7"
+              fill={person.color}
+            />
+          ))}
+        </g>
       </svg>
 
       <div>
